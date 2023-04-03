@@ -1,0 +1,30 @@
+---
+title: "test"
+output: html_document
+date: "2023-04-03"
+---
+
+```{r setup, include=FALSE}
+library(tuneR)
+library(ggplot2)
+library(plotly)
+```
+
+```{r}
+wave <- readWave('data_raw_blink_BYB_Recording_2023-04-03_10.48.27.wav')
+timeSeq <- seq_len(length(wave))/wave@samp.rate
+wave_blink <- wave[]
+
+plot(wave[1:100000]@left, type = 'l')
+plot(wave[100000:200000]@left, type = 'l')
+plot(wave[200000:300000]@left, type = 'l')
+plot(wave[1:100000]@left, type = 'l')
+plot(wave[1:100000]@left, type = 'l')
+plot(wave[1:100000]@left, type = 'l')
+plot(wave[1:100000]@left, type = 'l')
+plot(wave[1:100000]@left, type = 'l')
+plot(wave[1:100000]@left, type = 'l')
+
+plotly(wave@left)
+
+```
