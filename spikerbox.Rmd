@@ -1,0 +1,81 @@
+---
+title: "brainbox"
+author: '490414712'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(limma)
+library(cvTools)
+library(e1071)
+library(tuneR)
+library(tsfeatures)
+library(class)
+library(matrixStats)
+```
+
+```{r}
+dir_length3 = 'zoe_spiker/Length3'
+all_files_length3 <- list.files(dir_length3)
+wave_file_length3 <- list()
+for (i in all_files_length3) {
+wave_file_length3[[i]] <- readWave(file.path(dir_length3, i))
+}
+length3_lab <- substr(all_files_length3, 1, 3)
+
+
+
+eye_movement_sd = function(Y, 
+thresholdEvents = 1500) {
+  testStat <- sd(Y)
+return (ifelse(testStat > thresholdEvents, 'T', 'F'))
+}
+
+LR_detection = function(seq) {
+maxval = which.max(seq)
+minval = which.min(seq)
+movement = ifelse(maxval < minval,  "L", "R")
+return(movement)
+}
+
+streaming_classifier = function(wave_file,  
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_sd = c()
+  lower_interval = 1
+  max_time = max(xtime)*window_size
+  
+  while(max_time > lower_interval + window_size)
+  {
+    is_event = 'F'
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    is_event = eye_movement_sd(Y = interval)
+    if (is_event == 'T') {
+      predicted_sd = LR_detection(interval)
+      predicted_labels_sd = c(predicted_labels_sd, predicted_sd)
+    }
+    lower_interval = lower_interval + increment 
+  }
+  return (predicted_labels_sd)
+}
+
+results_sd = rep(NA, length(wave_file_length3))
+for (i in 1:length(wave_file_length3)) {
+  results_sd[i] <- streaming_classifier(wave_file_length3[[i]]) %>% paste(collapse="")
+}
+
+```
+
+# new data
+```{r}
+new_data <- readWave('data_raw_blink_BYB_Recording_2023-04-03_10.48.27.wav')
+```
+
+
