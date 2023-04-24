@@ -1,0 +1,483 @@
+---
+title: "brainbox"
+author: '490414712'
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cvTools)
+library(e1071)
+library(tuneR)
+library(tsfeatures)
+library(class)
+library(matrixStats)
+library(plotly)
+library(tsfeatures)
+library(cvTools)
+```
+
+```{r}
+dir_length3 = 'zoe_spiker/Length3'
+all_files_length3 <- list.files(dir_length3)
+wave_file_length3 <- list()
+wave_left_length3 <- list()
+for (i in all_files_length3) {
+  wave_file_length3[[i]] <- readWave(file.path(dir_length3, i))
+  wave_left_length3[[i]] <- readWave(file.path(dir_length3, i))@left
+}
+length3_lab <- substr(all_files_length3, 1, 3)
+
+
+
+eye_movement_sd = function(Y, 
+thresholdEvents = 1500) {
+  testStat <- sd(Y)
+return (ifelse(testStat > thresholdEvents, 'T', 'F'))
+}
+
+LR_detection = function(seq) {
+maxval = which.max(seq)
+minval = which.min(seq)
+movement = ifelse(maxval < minval,  "L", "R")
+return(movement)
+}
+
+streaming_classifier = function(wave_file,  
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_sd = c()
+  lower_interval = 1
+  max_time = max(xtime)*window_size
+  
+  while(max_time > lower_interval + window_size)
+  {
+    is_event = 'F'
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    is_event = eye_movement_sd(Y = interval)
+    if (is_event == 'T') {
+      predicted_sd = LR_detection(interval)
+      predicted_labels_sd = c(predicted_labels_sd, predicted_sd)
+    }
+    lower_interval = lower_interval + increment 
+  }
+  return (predicted_labels_sd)
+}
+
+results_sd = rep(NA, length(wave_file_length3))
+for (i in 1:length(wave_file_length3)) {
+  results_sd[i] <- streaming_classifier(wave_file_length3[[i]]) %>% paste(collapse="")
+}
+
+```
+
+# experimenting with standard deviation
+```{r}
+vary_threshold_sd = function(Y, 
+thresholdEvents) {
+  testStat <- sd(Y)
+return (ifelse(testStat > thresholdEvents, 'T', 'F'))
+}
+
+vary_threshold_classifier_sd = function(wave_file, events, 
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_sd = c()
+  predicted_times_sd = c()
+  lower_interval = 1
+  max_time = max(xtime)*window_size
+  sd_values <- c()
+  
+  while(max_time > lower_interval + window_size)
+  {
+    is_event = 'F'
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    sd_values <- append(sd_values, sd(interval))
+    is_event = vary_threshold_sd(Y = interval, thresholdEvents = events)
+    if (is_event == 'T') {
+      predicted_sd = LR_detection(interval)
+      predicted_labels_sd = c(predicted_labels_sd, predicted_sd)
+      predicted_times_sd = c(predicted_times_sd, lower_interval/10000)
+    }
+    lower_interval = lower_interval + increment 
+  }
+  return (list(predicted_labels_sd = predicted_labels_sd,
+               predicted_times_sd = predicted_times_sd,
+               sd_values = sd_values))
+}
+
+vary_threshold_classifier_sd(wave_file_length3[[1]], 869)$predicted_times_sd
+
+vary_threshold_classifier_sd(wave_file_length3[[1]], 869)$sd_values %>% plot(., type = 'l', xlab = 'Window number', ylab = 'Standard deviation', main = 'Standard deviation of rolling window for LLL wave')
+#3 events are detected when the threshold is in the range of 864-869
+
+
+timeSeq <- seq_len(length(wave_file_length3[[1]]))/wave_file_length3[[1]]@samp.rate
+plot(timeSeq, wave_file_length3[[1]]@left, type = 'l', main = 'Predicted events using standard deviation', xlab = 'Tim in seconds', ylab = 'Wave')
+abline(v = vary_threshold_classifier_sd(wave_file_length3[[1]], 650)$predicted_times_sd)
+vary_threshold_classifier_sd(wave_file_length3[[1]], 864)
+
+
+
+
+vary_threshold_classifier(wave_file_length3[[2]], 799)
+#799-821
+
+
+
+```
+
+# experimenting with zero crossings
+```{r}
+vary_threshold_zc = function(Y, 
+thresholdEvents) {
+  testStat <- sum(Y[1:(length(Y) - 1)] * Y[2:(length(Y))] <= 0)
+return (ifelse(testStat < thresholdEvents, 'T', 'F'))
+}
+
+vary_threshold_classifier_zc = function(wave_file, events, 
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_zc = c()
+  predicted_times_zc = c()
+  lower_interval = 1
+  max_time = max(xtime)*window_size
+  zc_values <- c()
+  second_check = 'F'
+  
+  while(max_time > lower_interval + window_size)
+  {
+    is_event = 'F'
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    zc_values <- append(zc_values, sum(interval[1:(length(interval) - 1)] * interval[2:(length(interval))] <= 0))
+    is_event = vary_threshold_zc(Y = interval, thresholdEvents = events)
+    if (is_event == 'T') {
+      if (second_check == 'F') {
+        second_check = 'T'
+      } else {
+        predicted_zc = LR_detection(interval)
+        predicted_labels_zc = c(predicted_labels_zc, predicted_zc)
+        predicted_times_zc = c(predicted_times_zc, lower_interval/10000)
+        second_check = 'F'
+      }
+    }
+    lower_interval = lower_interval + increment 
+  }
+  return (list(predicted_labels_zc = predicted_labels_zc,
+               predicted_times_zc = predicted_times_zc,
+               zc_values = zc_values))
+}
+
+vary_threshold_classifier_zc(wave_file_length3[[2]], 20)$zc_values %>% plot(., type = 'l', xlab = 'Window number', ylab = 'Zero crossings', main = 'Zero crossings in rolling window for LLL wave')
+
+plot(timeSeq, wave_file_length3[[1]]@left, type = 'l', main = 'Predicted events using zero crossings', xlab = 'Time in seconds', ylab = 'Wave')
+abline(h = 0)
+abline(v = vary_threshold_classifier_zc(wave_file_length3[[1]], 70)$predicted_times_zc)
+
+
+
+vary_threshold_classifier_zc(wave_file_length3[[1]], )$predicted_values
+
+
+
+
+
+vary_threshold_classifier_zc(wave_file_length3[[2]], 799)
+
+
+
+```
+
+# experimenting with amplitude spikes
+```{r}
+vary_threshold_amp = function(Y, 
+thresholdEvents) {
+  testStat <- abs(Y) %>% max
+return (ifelse(testStat > thresholdEvents, 'T', 'F'))
+}
+
+vary_threshold_classifier_amp = function(wave_file, events, 
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_amp = c()
+  predicted_times_amp = c()
+  lower_interval = 1
+  max_time = max(xtime)*window_size
+  amp_values <- c()
+  end_event = 'F'
+  
+  while(max_time > lower_interval + window_size)
+  {
+    is_event = 'F'
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    amp_values <- append(amp_values, abs(interval) %>% max)
+    is_event = vary_threshold_amp(Y = interval, thresholdEvents = events)
+    if (is_event == 'T') {
+      if (end_event == 'F') {
+        end_event = 'T'
+      } else {
+        predicted_amp = LR_detection(interval)
+        predicted_labels_amp = c(predicted_labels_amp, predicted_amp)
+        predicted_times_amp = c(predicted_times_amp, lower_interval/10000)
+        end_event = 'F'
+      }
+    }
+    lower_interval = lower_interval + increment 
+  }
+  return (list(predicted_labels_amp = predicted_labels_amp,
+               predicted_times_amp = predicted_times_amp,
+               amp_values = amp_values))
+}
+
+vary_threshold_classifier_amp(wave_file_length3[[3]], 869)$amp_values %>% plot(x = ., type = 'l', xlab = 'Window number', ylab = 'Max amplitude', main = 'Max amplitude of rolling window for LLL wave')
+vary_threshold_classifier_amp(wave_file_length3[[8]], 869)$amp_values %>% plot
+
+
+plot(timeSeq, wave_file_length3[[1]]@left, type = 'l', main = 'Predicted events using max amplitude', xlab = 'Time in seconds', ylab = 'Wave')
+abline(v = vary_threshold_classifier_amp(wave_file_length3[[1]], 2200)$predicted_times_amp)
+
+plot()
+
+
+plot(wave_file_length3[[5]]@left, type = 'l')
+```
+
+
+# AMPLITUDE SPIKES NUMBER 2
+```{r}
+vary_threshold_amp = function(Y, 
+thresholdEvents) {
+  testStat <- abs(Y) %>% max
+return (ifelse(testStat > thresholdEvents, 'T', 'F'))
+}
+
+vary_threshold_classifier_amp = function(wave_file, events, 
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_amp = c()
+  predicted_times_amp = c()
+  lower_interval = 1
+  max_time = max(xtime)*window_size
+  amp_values <- c()
+  end_event = 'F'
+  
+  while(max_time > lower_interval + window_size)
+  {
+    is_event = 'F'
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    amp_values <- append(amp_values, abs(interval) %>% max)
+    is_event = vary_threshold_amp(Y = interval, thresholdEvents = events)
+    if (is_event == 'T') {
+      if (end_event == 'F') {
+        end_event = 'T'
+      } else {
+        predicted_amp = LR_detection(interval)
+        predicted_labels_amp = c(predicted_labels_amp, predicted_amp)
+        predicted_times_amp = c(predicted_times_amp, lower_interval/10000)
+        end_event = 'F'
+      }
+    }
+    lower_interval = lower_interval + increment 
+  }
+  return (list(predicted_labels_amp = predicted_labels_amp,
+               predicted_times_amp = predicted_times_amp,
+               amp_values = amp_values))
+}
+
+vary_threshold_classifier_amp(wave_file_length3[[3]], 869)$amp_values %>% plot(x = ., type = 'l', xlab = 'Window number', ylab = 'Max amplitude', main = 'Max amplitude of rolling window for LLL wave')
+vary_threshold_classifier_amp(wave_file_length3[[8]], 869)$amp_values %>% plot
+
+
+plot(timeSeq, wave_file_length3[[1]]@left, type = 'l', main = 'Predicted events using max amplitude', xlab = 'Time in seconds', ylab = 'Wave')
+abline(v = vary_threshold_classifier_amp(wave_file_length3[[1]], 2200)$predicted_times_amp)
+
+plot()
+
+
+plot(wave_file_length3[[5]]@left, type = 'l')
+```
+
+
+# Classification by feature
+```{r}
+wave_seq_short = readRDS("wave_seq_short_list_zoe.rds")
+wave_label_short = readRDS("wave_label_short_results.rds")
+Y_list = unlist(wave_seq_short, recursive=FALSE)
+Y_lab = unlist(wave_label_short)
+
+Y_list = append(Y_list, new_blink)
+Y_lab = append(Y_lab, blink_lab)
+
+Y_features <- cbind(
+  tsfeatures(Y_list,
+             c("acf_features","entropy","lumpiness",
+               "flat_spots","crossing_points")),
+  tsfeatures(Y_list, "max_kl_shift", width=48),
+  tsfeatures(Y_list,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+  tsfeatures(Y_list,
+             c("max_level_shift","max_var_shift"), trim=TRUE))
+
+X = as.matrix(Y_features)
+y = Y_lab 
+
+cvK = 5  # number of CV folds
+cv_50acc5_knn = cv_50acc5_svm = cv_50acc5_rf = c()
+cv_acc_knn = cv_acc_svm = cv_acc_rf = c()
+for (i in 1:50) {
+  cvSets = cvTools::cvFolds(nrow(X), cvK)  # permute all the data, into 5 folds
+  cv_acc_knn = cv_acc_svm = cv_acc_rf = c()
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X[test_id, ]
+    X_train = X[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    
+    ## KNN
+    fit5 = class::knn(train = X_train, test = X_test, cl = y_train, k = 5)
+    cv_acc_knn[j] = mean(fit5 == y_test)
+    
+    ## SVM
+    svm_res <- e1071::svm(x = X_train, y = as.factor(y_train))
+    fit <- predict(svm_res, X_test)
+    cv_acc_svm[j] = mean(fit == y_test)
+
+    ## RandomForest
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fit <- predict(rf_res, X_test)
+    cv_acc_rf[j] = mean(fit == y_test)
+  }
+  cv_50acc5_knn <- append(cv_50acc5_knn, mean(cv_acc_knn))
+  cv_50acc5_svm <- append(cv_50acc5_svm, mean(cv_acc_svm))
+  cv_50acc5_rf <- append(cv_50acc5_rf, mean(cv_acc_rf))
+}
+
+par(mfrow = c(1, 3))
+boxplot(cv_50acc5_knn, horizontal = TRUE, main = 'Accuracy of KNN model')
+boxplot(cv_50acc5_svm, horizontal = TRUE, main = 'Accuracy of SVM model')
+boxplot(cv_50acc5_rf, horizontal = TRUE, main = 'Accuracy of random forest model')
+
+boxplot(cv_50acc5_knn, cv_50acc5_svm, cv_50acc5_rf, horizontal = TRUE, names = c('KNN', 'SVM', 'RF'), main = 'Evaluating classifier performance', xlab = '% Accuracy using 5-fold cross validation')
+
+wave = readWave('Record_L.wav')@left
+
+features <- cbind(
+  tsfeatures(wave,
+             c("acf_features","entropy","lumpiness",
+               "flat_spots","crossing_points")),
+  tsfeatures(wave, "max_kl_shift", width=48),
+  tsfeatures(wave,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+  tsfeatures(wave,
+             c("max_level_shift","max_var_shift"), trim=TRUE))
+
+test = as.matrix(features)
+predict = class::knn(train = X, test = test, cl = Y_lab, k = 3)
+
+```
+
+
+
+
+
+
+# new data
+
+```{r}
+new_data <- readWave('data_raw_blink_BYB_Recording_2023-04-03_10.48.27.wav')
+
+timeSeq <- seq_len(length(new_data))/new_data@samp.rate
+
+par(mfrow=c(1,1))
+plot(timeSeq[1:95000], new_data[1:95000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[95001:190000], new_data[95001:190000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[190001:250000], new_data[190001:250000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[250001:310000], new_data[250001:310000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[310001:355000], new_data[310001:355000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[355001:405000], new_data[355001:405000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[405001:440000], new_data[405001:440000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[800001:865000], new_data[800001:865000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[865001:945000], new_data[865001:945000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+plot(timeSeq[945001:1005000], new_data[945001:1005000]@left, type = 'l', xlab = 'Time in seconds', ylab = 'Wave')
+```
+
+
+
+
+# creating a blink dataset
+```{r}
+dir_blink <- 'all blink data'
+all_files_blink <- list.files(dir_blinks)
+wave_file_blink <- list()
+wave_left_blink <- list()
+for (i in all_files_blink) {
+  wave_file_blink[[i]] <- readWave(file.path(dir_blink, i))
+  wave_left_blink[[i]] <- readWave(file.path(dir_blink, i))@left
+}
+
+new_blink <- list()
+
+plot(wave_left_blink[[1]], type = 'l')
+plot(wave_left_blink[[1]][60000:75000], type = 'l')
+
+wave_left_blink[[1]][60000:75000]
+
+plot(wave_left_blink[[2]], type = 'l')
+plot(wave_left_blink[[2]][15000:30000], type = 'l')
+wave_left_blink[[2]][15000:30000]
+plot(wave_left_blink[[2]][30000:50000], type = 'l')
+wave_left_blink[[2]][30000:50000]
+plot(wave_left_blink[[2]][60000:80000], type = 'l')
+wave_left_blink[[2]][60000:80000]
+
+plot(wave_left_blink[[4]], type = 'l')
+plot(wave_left_blink[[4]][10000:22000], type = 'l')
+wave_left_blink[[4]][10000:22000]
+plot(wave_left_blink[[4]][35000:47000], type = 'l')
+wave_left_blink[[4]][35000:47000]
+
+plot(wave_left_blink[[5]], type = 'l')
+plot(wave_left_blink[[5]][8000:18000], type = 'l')
+wave_left_blink[[5]][8000:18000]
+plot(wave_left_blink[[5]][45900:52000], type = 'l')
+wave_left_blink[[5]][45900:52000]
+
+
+new_blink <- list(wave_left_blink[[1]][60000:75000],
+                  wave_left_blink[[2]][15000:30000],
+                  wave_left_blink[[2]][30000:50000],
+                  wave_left_blink[[2]][60000:80000],
+                  wave_left_blink[[4]][10000:22000],
+                  wave_left_blink[[4]][35000:47000],
+                  wave_left_blink[[5]][8000:18000],
+                  wave_left_blink[[5]][45900:52000])
+
+blink_lab <- rep('B', length(new_blink))
+
+```
+
