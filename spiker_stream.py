@@ -81,11 +81,13 @@ class Streamer:
             
             unfiltered_data = np.append(data_temp, unfiltered_data) if i != 0 else np.array(data_temp)
 
-            # filtered_data = filter(unfiltered_data)
+            if i > BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * WINDOW_SIZE - 1:
+                filtered_data = filter(unfiltered_data[BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * WINDOW_SIZE:])
 
-            t = np.linspace(0, (i + 1) * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND, len(unfiltered_data))
+                data = np.append(data, filtered_data) if i != BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * WINDOW_SIZE else filtered_data
+                t = np.linspace(0, (i + 1) * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND, len(data))
 
-            plot_on_canvas(fig, ax, t, unfiltered_data, self.max_time)
+                plot_on_canvas(fig, ax, t, data, self.max_time)
 
     def save_data(self, file_path): 
         pass
