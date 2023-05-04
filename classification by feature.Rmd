@@ -1,0 +1,98 @@
+---
+title: "classification by feature"
+author: '490414712'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cvTools)
+library(tuneR)
+library(tsfeatures)
+library(class)
+library(matrixStats)
+library(stringi)
+```
+# reading in zoe data
+```{r}
+dir_length3 = 'zoe_spiker/Length3'
+all_files_length3 <- list.files(dir_length3)
+wave_file_length3 <- list()
+wave_left_length3 <- list()
+for (i in all_files_length3) {
+  wave_file_length3[[i]] <- readWave(file.path(dir_length3, i))
+  wave_left_length3[[i]] <- readWave(file.path(dir_length3, i))@left
+}
+length3_lab <- substr(all_files_length3, 1, 3)
+
+dir_length8 = 'zoe_spiker/Length8'
+all_files_length8 <- list.files(dir_length8)
+wave_file_length8 <- list()
+wave_left_length8 <- list()
+for (i in all_files_length8) {
+  wave_file_length8[[i]] <- readWave(file.path(dir_length8, i))
+  wave_left_length8[[i]] <- readWave(file.path(dir_length8, i))@left
+}
+length8_lab <- substr(all_files_length8, 1, 8)
+
+dir_long = 'zoe_spiker/long'
+all_files_long <- list.files(dir_long)
+wave_file_long <- list()
+wave_left_long <- list()
+for (i in all_files_long) {
+  wave_file_long[[i]] <- readWave(file.path(dir_long, i))
+  wave_left_long[[i]] <- readWave(file.path(dir_long, i))@left
+}
+long_lab <- substr(all_files_long, 1, 20)
+```
+#building the model
+```{r}
+#Y_list contains a list of waves (the @left part of the .wav file), Y_lab contains a list of labels (eg. 'LLL')
+#you can put new data here as well
+Y_list = wave_left_length3
+Y_lab = length3_lab
+
+#this creates a matrix of features for each event window in Y_list
+#the features it uses are just the features they used in our tutorial, but we're supposed to play around with different choices of features to find the most accurate model
+#for example removing "acf_features" from the code below or adding other features that aren't already there
+#the documentation for the tsfeatures package lists out the different features available
+Y_features <- cbind(
+  tsfeatures(Y_list,
+             c("acf_features","entropy","lumpiness",
+               "flat_spots","crossing_points")),
+  tsfeatures(Y_list, "max_kl_shift", width=48),
+  tsfeatures(Y_list,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+  tsfeatures(Y_list,
+             c("max_level_shift","max_var_shift"), trim=TRUE))
+
+X = as.matrix(Y_features)
+y = Y_lab 
+
+#this makes a random forest on the matrix of features, other models like knn etc. might be more accurate
+rf <- randomForest::randomForest(x = X, y = as.factor(y))
+```
+# prediction function
+```{r}
+predict_movement = function(wave) {
+  features <- cbind(
+    tsfeatures(wave,
+               c("acf_features","entropy","lumpiness",
+                 "flat_spots","crossing_points")),
+    tsfeatures(wave, "max_kl_shift", width=48),
+    tsfeatures(wave,
+               c("mean","var"), scale=FALSE, na.rm=TRUE),
+    tsfeatures(wave,
+               c("max_level_shift","max_var_shift"), trim=TRUE))
+  
+  test = as.matrix(features)
+
+  return (predict(rf, test) %>% as.character)
+}
+
+#use this to test the model
+#predict_movement(some_random_wave.wav@left)
+```
+
