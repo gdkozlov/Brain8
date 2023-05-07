@@ -1,0 +1,587 @@
+---
+title: "LR_classifier"
+output: html_document
+date: "2023-04-13"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tuneR)
+library(devtools)
+library(ggplot2)
+library(tsfeatures)
+library(stringdist)
+library(stats)
+library(randomForest)
+library(e1071)
+library(cvTools)
+```
+
+
+```{r}
+#reading the wave from our recordings
+record_waveSeq <- readWave("record/LLL.wav") 
+record_waveSeq
+# time (in second) of the sequencing
+record_timeSeq <- seq_len(length(record_waveSeq))/record_waveSeq@samp.rate 
+
+#reading the wave from L3
+l3_waveSeq <- readWave("L3/LLL.wav") 
+l3_waveSeq
+# time (in second) of the sequencing
+l3_timeSeq <- seq_len(length(l3_waveSeq))/l3_waveSeq@samp.rate
+
+#reading the zoe spiker data
+waveSeq <- readWave("zoe_spiker/Length3/LLL_z2.wav")
+waveSeq
+timeSeq <- seq_len(length(waveSeq))/waveSeq@samp.rate
+
+
+
+```
+
+#Plotting the data
+
+```{r pressure, echo=FALSE}
+plot(record_timeSeq, record_waveSeq@left, type = "l", ylab="Signal", xlab="Time(seconds)", main = "record", sub = "LLL")
+
+plot(l3_timeSeq, l3_waveSeq@left, type = "l", ylab="Signal", xlab="Time(seconds)", main = "L3", sub = "LLL")
+
+plot(timeSeq, waveSeq@left, type = "l", ylab="Signal", xlab="Time(seconds)", main = "Zoe Spiker", sub = "LLL" )
+
+```
+
+
+
+
+
+
+## Loading in the data
+
+
+```{r}
+## Short wave files
+dir_short = "zoe_spiker/Length3/"
+all_files_short <- list.files(dir_short)
+
+wave_file_short <- list()
+for (i in all_files_short) {
+wave_file_short[[i]] <- readWave(file.path(dir_short, i))
+}
+
+## Medium wave files
+
+dir_medium = "zoe_spiker/Length8/"
+all_files_medium <- list.files(dir_medium)
+
+wave_file_medium <- list()
+for (i in all_files_medium) {
+wave_file_medium[[i]] <- readWave(file.path(dir_medium, i))
+}
+
+## Long wave files
+
+dir_long = "zoe_spiker/Long/"
+all_files_long <- list.files(dir_long)
+
+wave_file_long <- list()
+for (i in all_files_long) {
+wave_file_long[[i]] <- readWave(file.path(dir_long, i))
+}
+
+##  Record files
+
+dir_record <- "record/"
+all_files_record <- list.files(dir_record)
+
+wave_file_record <- list()
+for (i in all_files_record) {
+  wave_file_record[[i]] <- readWave(file.path(dir_record, i))
+
+  # # Swap "L" and "R" in file name
+  # new_name <- gsub("L", "X", i)
+  # new_name <- gsub("R", "L", new_name)
+  # new_name <- gsub("X", "R", new_name)
+  #
+  # # Check if the new file name already exists
+  # if (file.exists(file.path(dir_record, new_name))) {
+  #   j <- 1
+  #   repeat {
+  #     # Rename the file with a different name if the new name already exists
+  #     new_name_j <- gsub(".wav", paste0("_", j, ".wav"), new_name)
+  #     if (!file.exists(file.path(dir_record, new_name_j))) {
+  #       file.rename(file.path(dir_record, i), file.path(dir_record, new_name_j))
+  #       break
+  #     }
+  #     j <- j + 1
+  #   }
+  # } else {
+  #   file.rename(file.path(dir_record, i), file.path(dir_record, new_name))
+  # }
+}
+
+
+## L3 Files
+
+dir_l3 = "L3/"
+all_files_l3 <- list.files(dir_l3)
+
+wave_file_l3 <- list()
+for (i in all_files_l3) {
+wave_file_l3[[i]] <- readWave(file.path(dir_l3, i))
+
+# 
+#   # Swap "L" and "R" in file name
+#   new_name <- gsub("L", "X", i)
+#   new_name <- gsub("R", "L", new_name)
+#   new_name <- gsub("X", "R", new_name)
+#   
+#   # Check if the new file name already exists
+#   if (file.exists(file.path(dir_l3, new_name))) {
+#     j <- 1
+#     repeat {
+#       # Rename the file with a different name if the new name already exists
+#       new_name_j <- gsub(".wav", paste0("_", j, ".wav"), new_name)
+#       if (!file.exists(file.path(dir_l3, new_name_j))) {
+#         file.rename(file.path(dir_l3, i), file.path(dir_l3, new_name_j))
+#         break
+#       }
+#       j <- j + 1
+#     }
+#   } else {
+#     file.rename(file.path(dir_l3, i), file.path(dir_l3, new_name))
+#   }
+}
+
+
+
+```
+
+
+
+
+## Detection Function
+
+```{r}
+LR_detection = function(seq) {
+maxval = which.max(seq)
+minval = which.min(seq)
+movement = ifelse(maxval < minval,  "L", "R")
+return(movement)
+}
+```
+
+
+## Streaming Classifier
+
+```{r}
+streaming_classifier = function(wave_file,  
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/3,
+                                thresholdEvents = 40) {
+  
+  Y = wave_file@left
+  xtime = seq_len(length(Y))/wave_file@samp.rate 
+  predicted_labels = c()
+  window_lb = 1 # Lower bound of the window should start from index 1 (start of signal)
+  max_time = length(Y)
+  
+  while(max_time > window_lb + window_size) {
+    
+    window_ub = window_lb + window_size
+    window = Y[window_lb:window_ub]
+    
+    # Calculate number of zero crossings in the current window
+    zero_crossings = sum(window[1:(length(window) - 1)] * window[2:(length(window))] <= 0)
+    
+    if (zero_crossings < thresholdEvents) {
+      # Event detected, need to determine whether left or right
+      predicted = LR_detection(window)
+      predicted_labels = c(predicted_labels, predicted)
+      window_lb = window_lb + window_size # Just found event; use larger increment
+    } else {
+      # No event detected; immediately move to next window
+      window_lb = window_lb + increment # Still looking for event; use smaller increment
+    }
+  }
+  return(paste(predicted_labels, collapse = "")) # Convert vector of predictions to string
+}
+```
+
+
+# Testing the streaming Classifier
+
+```{r}
+streaming_classifier(wave_file_short[[3]])  # Actual label is LLL
+```
+
+```{r}
+streaming_classifier(wave_file_medium[[4]]) # Actual label is LRRRLLRL
+```
+
+```{r}
+streaming_classifier(wave_file_long[[1]])   # Actual label is LLLRLLLRLRRLRRRLRLL
+```
+
+```{r}
+streaming_classifier(wave_file_record[[12]]) #labelled LLLL
+all_files_record[12]
+
+# #reading the wave from our recordings
+# record_waveSeq <- readWave("record/LLLL.wav") 
+# record_waveSeq
+# # time (in second) of the sequencing
+# record_timeSeq <- seq_len(length(record_waveSeq))/record_waveSeq@samp.rate 
+# plot(record_timeSeq, record_waveSeq@left, type = "l", ylab="Signal", xlab="Time(seconds)", main = "record", sub = "LLL")
+```
+
+
+```{r}
+streaming_classifier(wave_file_l3[[3]]) #labelled LLL
+all_files_l3[3]
+```
+
+
+## Looping through a file
+
+```{r}
+streaming_classifier_file <- function(wave_file_folder,
+                                      directory) {
+  
+  all_files_folder  = list.files(directory)
+  for(i in 1:length(wave_file_folder)) {
+  
+   #Applying the eye_movement_zc_mod function to "y" and "xtime" to cut signal into segments based on zero-crossings and classify each segment
+  cut_result = streaming_classifier(wave_file_folder[[i]])
+  print(i)
+  cat(paste("File:", all_files_folder[i], "\n"))
+  cat(paste("Movements:", cut_result, "\n"))
+  }
+}
+```
+
+
+```{r}
+streaming_classifier_file(wave_file_record, dir_record)
+```
+
+
+#Levenshtein similarity
+
+
+```{r}
+leven_similarity <- function(wave_file) {
+  
+  # Initialising vectors to store results
+  file_results = numeric(length(wave_file))
+  
+  for (i in 1:length(wave_file)) {
+  label = wave_file[i] %>% names %>% gsub("\\_.*", "", .) ## remove last part of file name
+  prediction = streaming_classifier(wave_file[[i]])
+  file_results[i] = stringsim(label, prediction, method = "lv")
+  }
+  
+  # Storing results in a data frame
+  file_df = data.frame(lv_sim = c(file_results),
+                        group = rep(c("Short"), 
+                                    c(length(wave_file))))
+
+  # Plotting the overall results
+  plot <- ggplot(data = file_df,
+         mapping = aes(x = "", y = lv_sim)) +
+    geom_boxplot() +
+    geom_jitter(size = 1) +
+    labs(title = "Distribution of Levenshtein similarities\nbetween prediction and labels", 
+         x = "", y = "Levenshtein similarity") +
+    theme(plot.title = element_text(hjust = 0.5, size = 12),
+          panel.border = element_rect(colour = "black", fill = NA, size = 1))
+  
+  
+  summary_output  = summary(file_df$lv_sim)
+  
+  return(list(summary = summary_output, plot = plot))
+}
+```
+
+```{r}
+leven_similarity(wave_file_medium)
+```
+# Feature Extraction
+
+```{r}
+dir_3 <- "zoe_spiker/Length3/"
+all_files_3 <- list.files(dir_3, pattern = "\\.wav$")
+
+Y_list_3 <- list()
+Y_lab_3 <- character(length(all_files_3))
+
+for (i in seq_along(all_files_3)) {
+  # Read wave data
+  wave_file <- readWave(file.path(dir_3, all_files_3[i]))
+  
+  # Extract label from file name
+  label <- gsub("\\.wav$", "", all_files_3[i])
+  
+  # Split label by underscore and keep only the first part
+  label_parts <- strsplit(label, "_")[[1]]
+  label <- label_parts[1]
+  
+  # Store wave data and label
+  Y_list_3[[i]]  <-wave_file@left
+  Y_lab_3[i] <- strsplit(label, "")
+  
+  # Extract three wave segments
+  n.samples <- length(wave_file@left)
+  wave_seg_length <- n.samples/3
+  for (j in 1:3) {
+    Y_list_3[[i*3 - (3-j)]] <- wave_file@left[((j-1)*wave_seg_length+1):(j*wave_seg_length)]
+  }
+}
+
+Y_lab_3 = unlist(Y_lab_3)
+
+Y_features_3 <- cbind(
+  tsfeatures(Y_list_3,
+             c("acf_features","entropy","lumpiness",
+               "flat_spots","crossing_points")),
+  tsfeatures(Y_list_3, "max_kl_shift", width=48),
+  tsfeatures(Y_list_3,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+  tsfeatures(Y_list_3,
+             c("max_level_shift","max_var_shift"), trim=TRUE))
+```
+
+
+```{r}
+dir_8 <- "zoe_spiker/Length8/"
+all_files_8 <- list.files(dir_8, pattern = "\\.wav$")
+
+Y_list_8 <- list()
+Y_lab_8 <- character(length(all_files_8))
+
+for (i in seq_along(all_files_8)) {
+  # Read wave data
+  wave_file <- readWave(file.path(dir_8, all_files_8[i]))
+  
+  # Extract label from file name
+  label <- gsub("\\.wav$", "", all_files_8[i])
+  
+  # Split label by underscore and keep only the first part
+  label_parts <- strsplit(label, "_")[[1]]
+  label <- label_parts[1]
+  
+  # Store wave data and label
+  Y_list_8[[i]]  <-wave_file@left
+  Y_lab_8[i] <- strsplit(label, "")  # change here
+  
+  
+  # Extract eight wave segments
+  n.samples <- length(wave_file@left)
+  wave_seg_length <- n.samples/8
+  for (j in 1:8) {
+    Y_list_8[[i*8 - (8-j)]] <- wave_file@left[((j-1)*wave_seg_length+1):(j*wave_seg_length)]
+  }
+}
+
+Y_lab_8 = unlist(Y_lab_8)
+
+Y_features_8 <- cbind(
+  tsfeatures(Y_list_8,
+             c("acf_features","entropy","lumpiness",
+               "flat_spots","crossing_points")),
+  tsfeatures(Y_list_8, "max_kl_shift", width=48),
+  tsfeatures(Y_list_8,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+  tsfeatures(Y_list_8,
+             c("max_level_shift","max_var_shift"), trim=TRUE))
+```
+
+```{r}
+dir_long <- "zoe_spiker/Long/"
+all_files_long <- list.files(dir_long, pattern = "\\.wav$")
+
+Y_list_long <- list()
+Y_lab_long <- character(length(all_files_long))
+
+for (i in seq_along(all_files_long)) {
+  # Read wave data
+  wave_file <- readWave(file.path(dir_long, all_files_long[i]))
+  
+  # Extract label from file name
+  label <- gsub("\\.wav$", "", all_files_long[i])
+  
+  # Split label by underscore and keep only the first part
+  label_parts <- strsplit(label, "_")[[1]]
+  label <- label_parts[1]
+  
+  # Store wave data and label
+  Y_list_long[[i]]  <- wave_file@left
+  Y_lab_long[i] <- strsplit(label, "")  # change here
+  
+  
+  # Extract long wave segments
+  n.samples <- length(wave_file@left)
+  wave_seg_length <- n.samples/20
+  for (j in 1:20) {
+    Y_list_long[[i*20 - (20-j)]] <- wave_file@left[((j-1)*wave_seg_length+1):(j*wave_seg_length)]
+  }
+}
+
+Y_lab_long = unlist(Y_lab_long)
+
+Y_features_long <- cbind(
+  tsfeatures(Y_list_long,
+             c("acf_features","entropy","lumpiness",
+               "flat_spots","crossing_points")),
+  tsfeatures(Y_list_long, "max_kl_shift", width=48),
+  tsfeatures(Y_list_long,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+  tsfeatures(Y_list_long,
+             c("max_level_shift","max_var_shift"), trim=TRUE))
+```
+
+#Combine the three
+```{r}
+# Combine all labels
+Y_lab <- c(Y_lab_3, Y_lab_8, Y_lab_long)
+
+# Combine all features
+Y_features <- rbind(Y_features_3, Y_features_8, Y_features_long)
+```
+
+```{r}
+## Feature Extraction Check
+Y_lab
+Y_features
+X = as.matrix(Y_features)
+length(X)
+X
+```
+
+
+### KNN
+```{r}
+X = as.matrix(Y_features)
+y = Y_lab
+
+cvK = 8  # number of CV folds
+cv_50acc5_knn = cv_acc5 = c()
+for (i in 1:50) {
+  cvSets = cvTools::cvFolds(nrow(X), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X[test_id, ]
+    X_train = X[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    fit = class::knn(train = X_train, test = X_test, cl = y_train, k = 2)
+    cv_acc5[j] = table(fit, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+  }
+  cv_50acc5_knn <- append(cv_50acc5_knn, mean(cv_acc5))
+}
+
+#boxplot(cv_50acc5_knn, horizontal = TRUE, xlab="Accuracy")
+```
+
+```{r}
+# Make a prediction using the trained classifier
+prediction <- class::knn(train = X, test = Y_features, cl = y, k = 2)
+
+# Print the predicted class
+print(prediction)
+```
+
+
+### Random Forest
+```{r}
+
+set.seed(3888)
+# Convert features to matrix and labels to factors
+X <- as.matrix(Y_features)
+y <- as.factor(Y_lab)
+
+cvK <- 8  # number of CV folds
+cv_50acc5_rf <- cv_acc5 <- c()
+
+for (i in 1:50) {
+  cvSets <- cvTools::cvFolds(nrow(X), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc <- NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id <- cvSets$subsets[cvSets$which == j]
+    X_test <- X[test_id, ]
+    X_train <- X[-test_id, ]
+    y_test <- y[test_id]
+    y_train <- y[-test_id]
+    
+    # Fit random forest classifier and predict on test data
+    rf_fit <- randomForest(x = X_train, y = y_train)
+    rf_pred <- predict(rf_fit, X_test)
+    
+    # Calculate accuracy
+    cv_acc5[j] <- mean(rf_pred == y_test)
+  }
+  
+  cv_50acc5_rf <- append(cv_50acc5_rf, mean(cv_acc5))
+}
+
+#boxplot(cv_50acc5_rf, horizontal = TRUE, xlab="Accuracy")
+```
+
+```{r}
+new_prediction <- predict(rf_fit, Y_features)
+new_prediction
+```
+
+### SVM
+```{r}
+
+X = as.matrix(Y_features)
+y = as.factor(Y_lab)
+
+cvK = 8  # number of CV folds
+cv_50acc5_svm = cv_acc5 = c()
+for (i in 1:50) {
+  cvSets = cvTools::cvFolds(nrow(X), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X[test_id, ]
+    X_train = X[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    fit = e1071::svm(x = X_train, y = y_train, kernel = "linear")
+    pred = predict(fit, newdata = X_test)
+    cv_acc5[j] = mean(pred == y_test)
+  }
+  cv_50acc5_svm <- append(cv_50acc5_svm, mean(cv_acc5))
+}
+
+# boxplot(cv_50acc5_svm, horizontal = TRUE, xlab="Accuracy")
+```
+
+```{r}
+predict(fit, newdata = l3_features)
+```
+
+
+#### PLoting accuracy of the three graphs
+```{r}
+# Combine the accuracy vectors into a single data frame
+accuracy_df <- data.frame(
+  "KNN" = cv_50acc5_knn,
+  "Random Forest" = cv_50acc5_rf,
+  "SVM" = cv_50acc5_svm
+)
+
+# Create a grouped boxplot
+boxplot(accuracy_df, horizontal = FALSE, xlab = "LR Classification Accuracy", col = c("#F8B195", "#CFF09E", "#A8E6CE"))
+
+```
+
+
+
+
