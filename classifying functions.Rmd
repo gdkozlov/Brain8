@@ -1,0 +1,479 @@
+---
+title: "Classifying functions"
+author: '490414712'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cvTools)
+library(tuneR)
+library(tsfeatures)
+library(class)
+library(matrixStats)
+```
+# reading in all the data
+```{r}
+dir_length3 = 'zoe_spiker/Length3'
+all_files_length3 <- list.files(dir_length3)
+wave_file_length3 <- list()
+wave_left_length3 <- list()
+for (i in all_files_length3) {
+  wave_file_length3[[i]] <- readWave(file.path(dir_length3, i))
+  wave_left_length3[[i]] <- readWave(file.path(dir_length3, i))@left
+}
+length3_lab <- substr(all_files_length3, 1, 3)
+
+dir_length8 = 'zoe_spiker/Length8'
+all_files_length8 <- list.files(dir_length8)
+wave_file_length8 <- list()
+wave_left_length8 <- list()
+for (i in all_files_length8) {
+  wave_file_length8[[i]] <- readWave(file.path(dir_length8, i))
+  wave_left_length8[[i]] <- readWave(file.path(dir_length8, i))@left
+}
+length8_lab <- substr(all_files_length8, 1, 8)
+
+dir_long = 'zoe_spiker/long'
+all_files_long <- list.files(dir_long)
+wave_file_long <- list()
+wave_left_long <- list()
+for (i in all_files_long) {
+  wave_file_long[[i]] <- readWave(file.path(dir_long, i))
+  wave_left_long[[i]] <- readWave(file.path(dir_long, i))@left
+}
+long_lab <- substr(all_files_long, 1, 20)
+
+dir_mark <- 'Brain8-main/L3'
+all_files_mark <- list.files(dir_mark)
+wave_file_mark <- list()
+wave_left_mark <- list()
+for (i in all_files_mark) {
+  wave_file_mark[[i]] <- readWave(file.path(dir_mark, i))
+  wave_left_mark[[i]] <- readWave(file.path(dir_mark, i))@left
+}
+
+#labels
+mark_lab <- list()
+for (i in 1:length(all_files_mark)) {
+  labels <- gsub(".wav", "", all_files_mark[i])
+  mark_lab[i] <- strsplit(labels, "")
+}
+mark_lab <- mark_lab %>% unlist()
+mark_lab[16:29] <- 'N'
+
+# new_left_mark <- list(
+# wave_left_mark[[1]][12000:22000],
+# wave_left_mark[[1]][23000:35000],
+# wave_left_mark[[1]][38000:45000],
+# wave_left_mark[[2]][10000:28000],
+# wave_left_mark[[2]][27000:40000],
+# wave_left_mark[[2]][40000:55000],
+# wave_left_mark[[3]][10000:25000],
+# wave_left_mark[[3]][25000:35000],
+# wave_left_mark[[3]][37000:47000],
+# wave_left_mark[[4]][6000:18000],
+# wave_left_mark[[4]][23000:32000],
+# wave_left_mark[[4]][35000:50000],
+# wave_left_mark[[5]][10000:27000],
+# wave_left_mark[[5]][26000:42000],
+# wave_left_mark[[5]][42000:53000],
+# wave_left_mark[[6]][0:13000],
+# wave_left_mark[[6]][26000:39000],
+# wave_left_mark[[7]][5000:17000],
+# wave_left_mark[[7]][17000:30000],
+# wave_left_mark[[7]][30000:43000],
+# wave_left_mark[[8]][10000:23000],
+# wave_left_mark[[8]][23000:36000],
+# wave_left_mark[[8]][36000:49000],
+# wave_left_mark[[8]][49000:62000],
+# wave_left_mark[[9]][25000:38000],
+# wave_left_mark[[9]][38000:51000],
+# wave_left_mark[[10]][12000:25000],
+# wave_left_mark[[10]][25000:38000],
+# wave_left_mark[[10]][38000:49000],
+# wave_left_mark[[11]][5000:17000],
+# wave_left_mark[[11]][18000:28000],
+# wave_left_mark[[11]][28000:42000],
+# wave_left_mark[[12]][12000:27000],
+# wave_left_mark[[12]][29000:40000],
+# wave_left_mark[[12]][40000:52000])
+# 
+# new_file_mark <- list(
+# wave_file_mark[[1]][12000:22000],
+# wave_file_mark[[1]][23000:35000],
+# wave_file_mark[[1]][38000:45000],
+# wave_file_mark[[2]][10000:28000],
+# wave_file_mark[[2]][27000:40000],
+# wave_file_mark[[2]][40000:55000],
+# wave_file_mark[[3]][10000:25000],
+# wave_file_mark[[3]][25000:35000],
+# wave_file_mark[[3]][37000:47000],
+# wave_file_mark[[4]][6000:18000],
+# wave_file_mark[[4]][23000:32000],
+# wave_file_mark[[4]][35000:50000],
+# wave_file_mark[[5]][10000:27000],
+# wave_file_mark[[5]][26000:42000],
+# wave_file_mark[[5]][42000:53000],
+# wave_file_mark[[6]][0:13000],
+# wave_file_mark[[6]][26000:39000],
+# wave_file_mark[[7]][5000:17000],
+# wave_file_mark[[7]][17000:30000],
+# wave_file_mark[[7]][30000:43000],
+# wave_file_mark[[8]][10000:23000],
+# wave_file_mark[[8]][23000:36000],
+# wave_file_mark[[8]][36000:49000],
+# wave_file_mark[[8]][49000:62000],
+# wave_file_mark[[9]][25000:38000],
+# wave_file_mark[[9]][38000:51000],
+# wave_file_mark[[10]][12000:25000],
+# wave_file_mark[[10]][25000:38000],
+# wave_file_mark[[10]][38000:49000],
+# wave_file_mark[[11]][5000:17000],
+# wave_file_mark[[11]][18000:28000],
+# wave_file_mark[[11]][28000:42000],
+# wave_file_mark[[12]][12000:27000],
+# wave_file_mark[[12]][29000:40000],
+# wave_file_mark[[12]][40000:52000])
+# 
+# wave_left_mark[[3]] <- wave_left_mark[[3]][10000:47000]
+# wave_left_mark[[5]] <- wave_left_mark[[5]][10000:53000]
+# wave_left_mark[[6]] <- wave_left_mark[[6]][0:39000]
+# wave_left_mark[[7]] <- wave_left_mark[[7]][5000:43000]
+# wave_left_mark[[8]] <- wave_left_mark[[8]][10000:62000]
+# wave_left_mark[[9]] <- wave_left_mark[[9]][25000:51000]
+# wave_left_mark[[10]] <- wave_left_mark[[10]][12000:49000]
+# wave_left_mark[[12]] <- wave_left_mark[[12]][12000:52000]
+# 
+# wave_file_mark[[3]] <- wave_file_mark[[3]][10000:47000]
+# wave_file_mark[[5]] <- wave_file_mark[[5]][10000:53000]
+# wave_file_mark[[6]] <- wave_file_mark[[6]][0:39000]
+# wave_file_mark[[7]] <- wave_file_mark[[7]][5000:43000]
+# wave_file_mark[[8]] <- wave_file_mark[[8]][10000:62000]
+# wave_file_mark[[9]] <- wave_file_mark[[9]][25000:51000]
+# wave_file_mark[[10]] <- wave_file_mark[[10]][12000:49000]
+# wave_file_mark[[12]] <- wave_file_mark[[12]][12000:52000]
+
+dir_gleb <- 'Brain8-main/gleb'
+all_files_gleb <- list.files(dir_gleb)
+wave_file_gleb <- list()
+wave_left_gleb <- list()
+for (i in all_files_gleb) {
+  wave_file_gleb[[i]] <- readWave(file.path(dir_gleb, i))
+  wave_left_gleb[[i]] <- readWave(file.path(dir_gleb, i))@left
+}
+
+#labels
+gleb_lab <- list()
+for (i in 1:length(all_files_gleb)) {
+  labels <- gsub(".wav", "", all_files_gleb[i])
+  gleb_lab[i] <- strsplit(labels, "")
+}
+gleb_lab <- gleb_lab %>% unlist()
+
+dir_blink <- 'Brain8-main/blink'
+all_files_blink <- list.files(dir_blink)
+wave_file_blink <- list()
+wave_left_blink <- list()
+for (i in all_files_blink) {
+  wave_file_blink[[i]] <- readWave(file.path(dir_blink, i))
+  wave_left_blink[[i]] <- readWave(file.path(dir_blink, i))@left
+}
+
+#labels
+blink_lab <- list()
+for (i in 1:length(all_files_blink)) {
+  labels <- gsub('[^LRBN]', '', all_files_blink[i])
+  blink_lab[i] <- strsplit(labels, "")
+}
+blink_lab <- blink_lab %>% unlist()
+```
+
+
+
+
+
+# detection function
+```{r}
+#classifying events
+event_sd = function(Y, 
+thresholdEvents) {
+  testStat <- sd(Y)
+return (ifelse(testStat > thresholdEvents, 'T', 'F'))
+}
+
+#prediction
+# wave_seq_short = readRDS("wave_seq_short_list_zoe.rds")
+# wave_label_short = readRDS("wave_label_short_results.rds")
+# Y_list = event_list_mark %>%
+#   append(., event_list_gleb) %>%
+#   append(., event_list_blink)
+# Y_lab = event_lab_mark %>%
+#   append(., event_lab_gleb) %>%
+#   append(., event_lab_blink)
+# 
+# 
+# Y_features <- cbind(
+#   tsfeatures(Y_list,
+#              c("acf_features","entropy","lumpiness",
+#                "flat_spots","crossing_points")),
+#   tsfeatures(Y_list, "max_kl_shift", width=48),
+#   tsfeatures(Y_list,
+#              c("mean","var"), scale=FALSE, na.rm=TRUE),
+#   tsfeatures(Y_list,
+#              c("max_level_shift","max_var_shift"), trim=TRUE))
+# 
+# X = as.matrix(Y_features)
+# y = Y_lab 
+# 
+# rf <- randomForest::randomForest(x = X, y = as.factor(y))
+
+predict_movement = function(wave) {
+  # features <- cbind(
+  #   tsfeatures(wave,
+  #              c("acf_features","entropy","lumpiness",
+  #                "flat_spots","crossing_points")),
+  #   tsfeatures(wave, "max_kl_shift", width=48),
+  #   tsfeatures(wave,
+  #              c("mean","var"), scale=FALSE, na.rm=TRUE),
+  #   tsfeatures(wave,
+  #              c("max_level_shift","max_var_shift"), trim=TRUE))
+  # 
+  # test = as.matrix(features)
+
+  # return (predict(rf, test) %>% as.character)
+  return ('lol')
+}
+
+#main function
+predict_sd = function(wave_file, events, 
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  predicted_labels_sd = c()
+  predicted_times_sd = c()
+  lower_interval = 1
+  max_time = max(xtime)*(window_size)
+  sd_values <- c()
+  last_sd = 0
+  in_movement = 'F'
+  past_peak = 'F'
+  
+  while(max_time > lower_interval + window_size)
+  {
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    in_movement = event_sd(Y = interval, thresholdEvents = events)
+    if (in_movement == 'T') {
+      if (sd(interval) < last_sd & past_peak == 'F') {
+        predicted_sd = predict_movement(interval)
+        predicted_labels_sd = c(predicted_labels_sd, predicted_sd)
+        predicted_times_sd = c(predicted_times_sd, lower_interval/10000)
+        past_peak = 'T'
+
+      } 
+      }
+       else {
+        past_peak = 'F'     
+  }
+    #print(c(past_peak, in_movement, in_movement))
+    sd_values <- append(sd_values, sd(interval))
+    last_sd = sd(interval)
+    lower_interval = lower_interval + increment 
+  }
+  return (list(predicted_labels_sd = predicted_labels_sd,
+               predicted_times_sd = predicted_times_sd,
+               sd_values = sd_values))
+}
+
+
+```
+
+# testing
+```{r}
+#testing function
+stream = function(file, labels) {
+  for (i in 1:length(file)) {
+    results <- predict_sd(file[[i]], 500)
+    par(mfrow = c(2,1))
+    
+    #sd plot
+    plot(results[[3]], type = 'l', xlab = 'Window number', ylab = 'Standard deviation', main = labels[i])
+    abline(v = results[[2]]*10)  
+    
+    #wave plot
+    plot(seq_len(length(file[[i]]))/file[[i]]@samp.rate, file[[i]]@left, type = 'l', xlab = 'Time (seconds)', ylab = 'Frequency')
+    if (!is.null(results[[2]])) {
+      for (i in 1:length(results[[2]])) {
+      polygon(x=c(results[[2]][i],(results[[2]][i]+1),(results[[2]][i]+1),results[[2]][i]),y=c(-10000,-10000, 10000, 10000),col=rgb(255, 0, 0, max = 255, alpha = 50), border = NA)
+      }
+    }
+    
+    #prediction
+    results[[1]] %>% print
+    
+      print(results[[3]])
+  }
+}
+```
+
+
+
+
+# evaluation
+```{r}
+evaluate = function(file, labels, threshold) {
+  total_tp = 0
+  total_tn = 0
+  total_fp = 0
+  total_fn = 0
+  correct = 0
+  keep_labels = c('L', 'R', 'B')
+  for (i in 1:length(file)) {
+    results <- predict_sd(file[[i]], threshold)
+
+    num_pred_events = which(results[[1]] != 'N') %>% length
+    num_true_events <- which(gsub('[^LRBN]', '', labels[i]) %>% strsplit(., "") %>% unlist != 'N') %>% length
+    num_windows = length(results[[3]])
+    
+    if (num_pred_events > num_true_events) {
+      fp = num_pred_events - num_true_events
+      tp = num_true_events
+      fn = 0
+      tn = num_windows - num_pred_events
+    }
+    else if (num_true_events > num_pred_events) {
+      fn = num_true_events - num_pred_events
+      tp = num_pred_events
+      fp = 0
+      tn = num_windows - num_true_events
+    }
+    else if (num_true_events == num_pred_events) {
+      tp = num_true_events
+      tn = num_windows - tp
+      fn = 0
+      fp = 0
+    }
+    
+      total_tp = total_tp + tp
+      total_tn = total_tn + tn
+      total_fp = total_fp + fp
+      total_fn = total_fn + fn
+      
+    #percentage of .wav files that are 100% correct
+    abs_acc = num_pred_events/num_true_events
+    if (is.na(abs_acc)) {
+      if (num_pred_events == 0) {
+        correct = correct + 1
+      }
+    }
+    else if (abs_acc == 1) {
+      correct = correct + 1
+    }
+  }
+  return (list(overall_acc =  (total_tp + total_tn) / (total_tp + total_tn + total_fp + total_fn),
+          balanced_acc = (total_tp / (total_tp + total_fn) + total_tn / (total_fp + total_tn)) / 2,
+          precision = total_tp / (total_tp + total_fp),
+          sensitivity = total_tp / (total_tp + total_fn),
+          specificity = total_tn / (total_tn + total_fp)
+  ))
+}
+```
+
+# snapshotting
+```{r}
+snapshot = function(wave_file, events, 
+                                window_size = wave_file@samp.rate,
+                                increment = window_size/10)
+{
+  Y = wave_file@left
+  xtime = seq_len(length(wave_file@left))/wave_file@samp.rate 
+  event_list = list()
+  lower_interval = 1
+  max_time = max(xtime)*(window_size)
+  sd_values <- c()
+  last_sd = 0
+  in_movement = 'F'
+  past_peak = 'F'
+  
+  while(max_time > lower_interval + window_size)
+  {
+    upper_interval = lower_interval + window_size
+    interval = Y[lower_interval:upper_interval]
+    in_movement = event_sd(Y = interval, thresholdEvents = events)
+    if (in_movement == 'T') {
+      if (sd(interval) < last_sd & past_peak == 'F') {
+        event_list = append(event_list, list(interval))
+        past_peak = 'T'
+      } 
+      }
+       else {
+        past_peak = 'F'     
+  }
+    #print(c(past_peak, in_movement, in_movement))
+    sd_values <- append(sd_values, sd(interval))
+    last_sd = sd(interval)
+    lower_interval = lower_interval + increment 
+  }
+  return (event_list)
+}
+```
+
+# creating training sets
+```{r}
+event_list_mark = list()
+for (i in 1:length(wave_file_mark)) {
+  event_list_mark <- append(event_list_mark, snapshot(wave_file_mark[[i]], 500))
+}
+
+event_list_mark <- event_list_mark[c(5, 6, 7, 9, 10, 12, 13, 14, 15, 16, 17)]
+
+event_lab_mark <- c('L', 'L', 'R', 'R', 'R', 'R', 'R', 'L', 'R', 'R', 'R')
+
+event_list_gleb = list()
+for (i in 1:length(wave_file_gleb)) {
+  event_list_gleb <- append(event_list_gleb, snapshot(wave_file_gleb[[i]], 500))
+}
+
+event_list_gleb <- event_list_gleb[c(6, 8, 10, 13, 16, 17, 19:29, 31, 40:47)]
+
+event_lab_gleb <- c('R', 'L', 'L', 'L', 'R', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'R', 'R', 'L', 'R', 'R', 'R', 'L', 'R', 'R', 'R', 'R', 'R', 'R')
+
+event_list_blink = list()
+for (i in 1:length(wave_file_blink)) {
+  event_list_blink <- append(event_list_blink, snapshot(wave_file_blink[[i]], 500))
+}
+
+event_lab_blink <- rep('B', 17)
+
+
+```
+
+# testing classifier
+```{r}
+cvK = 5  # number of CV folds
+cv_50acc5_knn = cv_acc5 = c()
+for (i in 1:50) {
+  cvSets = cvTools::cvFolds(nrow(X), cvK)  # permute all the data, into 5 folds
+  cv_acc = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X[test_id, ]
+    X_train = X[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fit <- predict(rf_res, X_test)
+    cv_acc5[j] = mean(fit == y_test)
+  }
+  cv_50acc5_knn <- append(cv_50acc5_knn, mean(cv_acc5))
+}
+
+cv_50acc5_knn %>% boxplot
+
+```
+
