@@ -2,7 +2,7 @@ import serial
 import matplotlib.pyplot as plt
 import numpy as np
 from filters import butter_filter
-
+from event_classifier import predict_events
 
 # Constants
 BAUDRATE = 230400
@@ -47,8 +47,9 @@ def prepare_canvas():
 
     return fig, ax
 
-def plot_on_canvas(fig, ax, t, data, max_time):
+def plot_on_canvas(fig, ax, max_time, data, i):
     ax.clear()
+    t = np.linspace(0, (i + 1) * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND, len(data))
     ax.plot(t, data)
     plt.xlabel('Time [s]')
     plt.xlim([0, max_time])
@@ -61,38 +62,64 @@ class Streamer:
         self.ser = serialize(port)
         self.max_time = max_time
 
-    def reserialize(self, port):
+    def close(self):
         self.ser.close()
+
+    def reserialize(self, port):
+        self.close()
         self.ser = serialize(port)
 
     def set_max_time(self, max_time):
         self.max_time = max_time
 
-    def stream(self, filter=lambda x:x):
+    def get_data(self):
+        return process_data(read_arduino(self.ser))
+    
+    def setup_stream(self):
 
+        # Data collection
         N_loops = int(BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * self.max_time)
+        raw_data = []
+        data = []
+
+        # Figure
         fig, ax = prepare_canvas()
 
+        # Event classifying
+        prev_sd = 0
+        is_peak_found = False
+
+        return N_loops, raw_data, data, fig, ax, prev_sd, is_peak_found
+
+    def stream(self, filter=butter_filter):
+
+        N_loops, raw_data, data, fig, ax, prev_sd, is_peak_found = self.setup_stream()
+        
+        prev_length = 0
+
         for i in range(N_loops):
-                
-            # Get data
-            raw_data = read_arduino(self.ser)
-            data_temp = process_data(raw_data)
             
-            unfiltered_data = np.append(data_temp, unfiltered_data) if i != 0 else np.array(data_temp)
+            # Get data
+            raw_data = np.concatenate([raw_data, self.get_data()])
+            if i < WINDOW_SIZE * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND:
+                continue
 
-            if i > BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * WINDOW_SIZE - 1:
-                filtered_data = filter(unfiltered_data[BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * WINDOW_SIZE:])
+            # Filter data
+            data_filtered = filter(raw_data[int(WINDOW_SIZE * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND):])
+            new_data = data_filtered[prev_length:]
+            data = np.append(data, new_data)
+            prev_length = len(data_filtered)
 
-                data = np.append(data, filtered_data) if i != BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * WINDOW_SIZE else filtered_data
-                t = np.linspace(0, (i + 1) * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND, len(data))
+            predicted_events, prev_sd, is_peak_found = predict_events(new_data, prev_sd, is_peak_found)
 
-                plot_on_canvas(fig, ax, t, data, self.max_time)
+            if predicted_events:
+                pass
+
+            plot_on_canvas(fig, ax, self.max_time, data, i)
+        
+        # plt.plot(np.fft.fftfreq(len(raw_data), 1/10000)[:len(raw_data)//2], np.abs(np.fft.fft(raw_data))[:len(raw_data)//2])
+        # plot_on_canvas(fig, ax, self.max_time, raw_data, i)
+
 
     def save_data(self, file_path): 
         pass
-
-
-
-
- 
