@@ -4,8 +4,6 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 import joblib
 
-print(joblib.__version__)
-
 RANDOM_FOREST = joblib.load('tsfresh_rf.joblib')
 
 def is_event_change(interval_arr, event_threshold):
@@ -18,7 +16,7 @@ def is_event_change(interval_arr, event_threshold):
     Returns:
         _type_: _description_
     """
-    return statistics.stdev(interval_arr) > event_threshold
+    return statistics.stdev(interval_arr.tolist()) > event_threshold
 
 def predict_movement(event_arr):
     
@@ -61,7 +59,7 @@ def predict_events(data, prev_sd, is_peak_found, window_size=10000, event_thresh
             print(lower_interval/10000)
             is_peak_found = True
 
-        prev_sd = statistics.stdev(interval)
+        prev_sd = statistics.stdev(interval.tolist())
         lower_interval = int(lower_interval + increment)
 
     return predicted_labels, prev_sd, is_peak_found # predicted_times
