@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 import joblib
 
-RANDOM_FOREST = joblib.load('tsfresh_rf.joblib')
+RANDOM_FOREST = joblib.load('new_rf.joblib')
 
 def is_event_change(interval_arr, event_threshold):
     """Check if 
