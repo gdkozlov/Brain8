@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 import joblib
+from scipy.io import wavfile
 
 RANDOM_FOREST = joblib.load('new_rf.joblib')
 
@@ -44,10 +45,10 @@ def predict_events(data, prev_sd, is_peak_found, window_size=10000, event_thresh
     lower_interval = 1
     max_time = len(data)
 
-    while (lower_interval + 10000) < max_time:
+    while (lower_interval + 4000) < max_time:
         upper_interval = int(lower_interval + 10000)
         interval = data[lower_interval:upper_interval]
-
+        print(lower_interval)
         if not is_event_change(interval, event_threshold):
             is_peak_found = False
 
@@ -63,3 +64,13 @@ def predict_events(data, prev_sd, is_peak_found, window_size=10000, event_thresh
         lower_interval = int(lower_interval + increment)
 
     return predicted_labels, prev_sd, is_peak_found # predicted_times
+
+sample_rate, wave_array = wavfile.read('BBB.wav')
+# predict_events(wave_array, 0, False)
+section = wave_array[47001:57001]
+import sys
+np.set_printoptions(threshold=sys.maxsize)
+print((statistics.mean(section**2))**(1/2))
+print(section**2)
+for i in range(1, len(section)):
+    print(type(section[i]))
