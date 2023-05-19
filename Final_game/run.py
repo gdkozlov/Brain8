@@ -4,7 +4,24 @@ import color
 import random
 import os
 from pygame.locals import *
+import math
+import librosa
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+import matplotlib.pyplot as plt
+# import pandas
+# import statistics
+# # from tsfeatures import tsfeatures
+# from scipy.io import wavfile
+# import joblib
 
+# import serial
+import matplotlib.pyplot as plt
+import time
 
 #
 # def event_sd(Y, thresholdEvents):
@@ -146,12 +163,12 @@ def background(title):
     pygame.display.set_caption('Color Memory Game')
 
     screen = pygame.display.set_mode((500, 500))
-    screen.fill((3, 101, 100))
+    screen.fill((250, 240, 230))
     size = 500, 500
 
     t = pygame.font.SysFont('arial', 30)
 
-    text = t.render(title, True, (25, 202, 173))
+    text = t.render(title, True, (112, 128, 144))
     text_rect = text.get_rect()
 
     text_rect.center = (250, 40)
@@ -162,11 +179,38 @@ def background(title):
 
     return size, screen
 
+# white_s = rect
+# red_s = circle
+# green_s = ellipse
+# blue_s = line
+# yellow_s = arc
+# orange_s = polygon_3
+# purple_s = none
 
 class InterFace:
     rounds = "1"
     def __init__(self):
         pygame.init()
+
+    def shape(self, fun, pos, screen):
+        if fun == "white":
+            rp = (pos[0]-15, pos[1]-15)
+            return pygame.draw.rect(screen, (0,0,0), Rect(rp, (15,15)))
+        elif fun == "red":
+            return pygame.draw.circle(screen, (225,225,225), pos, 15)
+        elif fun == "green":
+            rp = (pos[0] - 15, pos[1] - 15)
+            return pygame.draw.ellipse(screen, (225,225,225), Rect(rp,(15,15)))
+        elif fun == "blue":
+            return pygame.draw.line(screen, (225,225,225), (pos[0]-10, pos[1]), (pos[0]+10, pos[1]))
+        elif fun == "yellow":
+            return pygame.draw.arc(screen, (0,0,0), (pos[0]-25, pos[1]-15, 50, 25), math.radians(45), math.radians(180))
+        elif fun == "orange":
+            vertices = [(pos[0], pos[1]-15), (pos[0]-10, pos[1]-5), (pos[0]+10, pos[1]-5)]
+            return pygame.draw.polygon(screen, (0,0,0), vertices)
+
+
+
 
     def home_interface(self):
         if os.path.exists("data_color.txt"):
@@ -177,13 +221,13 @@ class InterFace:
         button_start = Button_Text('Ready', (25, 202, 173), 'arial', 25)
         button_start.display(screen, 250, 250)
 
-        content = Text("There are two levels with a gradually increasing Difficulty.", (244, 96, 108), 'arial', 12)
+        content = Text("There are two levels with a gradually increasing Difficulty.", (105, 105, 105), 'arial', 12)
         content.display(screen, 250, 100)
 
-        content_2 = Text("You only have 5 seconds to remember.", (244, 96, 108), 'arial', 12)
+        content_2 = Text("You only have 5 seconds to remember.", (105, 105, 105), 'arial', 12)
         content_2.display(screen, 250, 120)
 
-        content_3 = Text("Press ""Ready"" to start", (236, 173, 158), 'arial', 19)
+        content_3 = Text("Press ""Ready"" to start", (112, 128, 144), 'arial', 19)
         content_3.display(screen, 250, 200)
 
         while True:
@@ -212,10 +256,15 @@ class InterFace:
 
         face_1 = SurfaceColor(color_3[0], 50, 50)
         face_1.display(screen, 125, 100)
+        self.shape(color_3[0], (125, 100), screen)
+
         face_2 = SurfaceColor(color_3[1], 50, 50)
         face_2.display(screen, 250, 100)
+        self.shape(color_3[1], (250, 100), screen)
+
         face_3 = SurfaceColor(color_3[2], 50, 50)
         face_3.display(screen, 375, 100)
+        self.shape(color_3[2], (375, 100), screen)
 
         # button_start = Button_Text('Start', (25, 202, 173), 'arial', 25)
         # button_start.display(screen, 250, 250)
@@ -238,11 +287,11 @@ class InterFace:
                     if countdown_seconds <= 0:
                         self.game_interface_1()
 
-            font = pygame.font.SysFont('arialunicode', 30)
-            countdown_text = font.render(str(countdown_seconds), True, (233, 235, 254))
+            font = pygame.font.SysFont('arialunicode', 35)
+            countdown_text = font.render(str(countdown_seconds), True, (47, 79, 79))
             screen.blit(countdown_text, countdown_text.get_rect(center=text_position))
 
-            screen.fill((3, 101, 100), countdown_text.get_rect(center=text_position))
+            screen.fill((250, 240, 230), countdown_text.get_rect(center=text_position))
             screen.blit(countdown_text, countdown_text.get_rect(center=text_position))
 
             pygame.display.flip()
@@ -252,7 +301,7 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((250, 235, 215))
+        screen.fill((250, 240, 230))
 
         t = pygame.font.SysFont('arialunicode', 20)
 
@@ -278,6 +327,8 @@ class InterFace:
         button_2 = Button_Surface(data_display[1], 50, 50)
         button_1.display(screen, 150, 100)
         button_2.display(screen, 300, 100)
+        self.shape(data_display[0], (150, 100), screen)
+        self.shape(data_display[1], (300, 100), screen)
 
         random_1.append(data_1)
         sign = None
@@ -298,6 +349,8 @@ class InterFace:
                     button_2 = Button_Surface(data_display[1], 50, 50)
                     button_1.display(screen, 150, 100)
                     button_2.display(screen, 300, 100)
+                    self.shape(data_display[0], (150, 100), screen)
+                    self.shape(data_display[1], (300, 100), screen)
                     if event.key == K_LEFT:
                         sign = button_1.color
                         button_c = Button_Text('Selected', color.gray, 'arialunicode', 12)
@@ -321,7 +374,7 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((238, 223, 204))
+        screen.fill((250, 240, 230))
 
         t = pygame.font.SysFont('arialunicode', 20)
 
@@ -345,7 +398,9 @@ class InterFace:
         button_1 = Button_Surface(data_display[0], 50, 50)
         button_2 = Button_Surface(data_display[1], 50, 50)
         button_1.display(screen, 150, 100)
+        self.shape(data_display[0], (150, 100), screen)
         button_2.display(screen, 300, 100)
+        self.shape(data_display[1], (300, 100), screen)
         random_2.append(data_2)
         sign = None
         while True:
@@ -360,7 +415,10 @@ class InterFace:
                     button_1 = Button_Surface(data_display[0], 50, 50)
                     button_2 = Button_Surface(data_display[1], 50, 50)
                     button_1.display(screen, 150, 100)
+                    self.shape(data_display[0], (150, 100), screen)
                     button_2.display(screen, 300, 100)
+                    self.shape(data_display[1], (300, 100), screen)
+                    random_2.append(data_2)
                     if event.key == K_LEFT:
                         sign = button_1.color
                         button_c = Button_Text('Selected', color.gray, 'arialunicode', 12)
@@ -383,7 +441,7 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((205, 192, 176))
+        screen.fill((250, 240, 230))
 
         t = pygame.font.SysFont('arialunicode', 20)
 
@@ -407,7 +465,9 @@ class InterFace:
         button_1 = Button_Surface(data_display[0], 50, 50)
         button_2 = Button_Surface(data_display[1], 50, 50)
         button_1.display(screen, 150, 100)
+        self.shape(data_display[0], (150, 100), screen)
         button_2.display(screen, 300, 100)
+        self.shape(data_display[1], (300, 100), screen)
 
         random_3.append(data_3)
         sign = None
@@ -422,7 +482,9 @@ class InterFace:
                     button_1 = Button_Surface(data_display[0], 50, 50)
                     button_2 = Button_Surface(data_display[1], 50, 50)
                     button_1.display(screen, 150, 100)
+                    self.shape(data_display[0], (150, 100), screen)
                     button_2.display(screen, 300, 100)
+                    self.shape(data_display[1], (300, 100), screen)
                     if event.key == K_LEFT:
                         sign = button_1.color
                         button_c = Button_Text('Selected', color.gray, 'arialunicode', 12)
@@ -450,10 +512,10 @@ class InterFace:
         button_start = Button_Text('Ready', (25, 202, 173), 'arial', 25)
         button_start.display(screen, 250, 250)
 
-        content = Text("You only have three seconds to remember 3 colors.", (244, 96, 108), 'arial', 16)
+        content = Text("You only have three seconds to remember 3 colors.", (105, 105, 105), 'arial', 16)
         content.display(screen, 250, 100)
 
-        content_3 = Text("Press ""Ready"" to start", (236, 173, 158), 'arial', 19)
+        content_3 = Text("Press ""Ready"" to start", (112, 128, 144), 'arial', 19)
         content_3.display(screen, 250, 200)
 
         while True:
@@ -482,10 +544,13 @@ class InterFace:
 
         face_1 = SurfaceColor(color_3[0], 50, 50)
         face_1.display(screen, 125, 100)
+        self.shape(color_3[0], (125, 100), screen)
         face_2 = SurfaceColor(color_3[1], 50, 50)
         face_2.display(screen, 250, 100)
+        self.shape(color_3[1], (250, 100), screen)
         face_3 = SurfaceColor(color_3[2], 50, 50)
         face_3.display(screen, 375, 100)
+        self.shape(color_3[2], (375, 100), screen)
 
         countdown_seconds = 3
         TIMER_EVENT = pygame.USEREVENT + 1
@@ -506,10 +571,10 @@ class InterFace:
                         self.game_1()
 
             font = pygame.font.SysFont('arialunicode', 30)
-            countdown_text = font.render(str(countdown_seconds), True, (233, 235, 254))
+            countdown_text = font.render(str(countdown_seconds), True, (47, 79, 79))
             screen.blit(countdown_text, countdown_text.get_rect(center=text_position))
 
-            screen.fill((3, 101, 100), countdown_text.get_rect(center=text_position))
+            screen.fill((250, 240, 230), countdown_text.get_rect(center=text_position))
             screen.blit(countdown_text, countdown_text.get_rect(center=text_position))
 
             pygame.display.flip()
@@ -519,7 +584,7 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((250, 235, 215))
+        screen.fill((250, 240, 230))
 
         t = pygame.font.SysFont('arialunicode', 20)
 
@@ -544,7 +609,9 @@ class InterFace:
         button_1 = Button_Surface(data_display[0], 50, 50)
         button_2 = Button_Surface(data_display[1], 50, 50)
         button_1.display(screen, 150, 100)
+        self.shape(data_display[0], (150, 100), screen)
         button_2.display(screen, 300, 100)
+        self.shape(data_display[1], (300, 100), screen)
 
         random_1.append(data_1)
         sign = None
@@ -563,7 +630,9 @@ class InterFace:
                     button_1 = Button_Surface(data_display[0], 50, 50)
                     button_2 = Button_Surface(data_display[1], 50, 50)
                     button_1.display(screen, 150, 100)
+                    self.shape(data_display[0], (150, 100), screen)
                     button_2.display(screen, 300, 100)
+                    self.shape(data_display[1], (300, 100), screen)
                     if event.key == K_LEFT:
                         sign = button_1.color
                         button_c = Button_Text('Selected', color.gray, 'arialunicode', 12)
@@ -586,7 +655,7 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((238, 223, 204))
+        screen.fill((250, 240, 230))
 
         t = pygame.font.SysFont('arialunicode', 20)
 
@@ -610,7 +679,9 @@ class InterFace:
         button_1 = Button_Surface(data_display[0], 50, 50)
         button_2 = Button_Surface(data_display[1], 50, 50)
         button_1.display(screen, 150, 100)
+        self.shape(data_display[0], (150, 100), screen)
         button_2.display(screen, 300, 100)
+        self.shape(data_display[1], (300, 100), screen)
         random_2.append(data_2)
         sign = None
         while True:
@@ -625,7 +696,9 @@ class InterFace:
                     button_1 = Button_Surface(data_display[0], 50, 50)
                     button_2 = Button_Surface(data_display[1], 50, 50)
                     button_1.display(screen, 150, 100)
+                    self.shape(data_display[0], (150, 100), screen)
                     button_2.display(screen, 300, 100)
+                    self.shape(data_display[1], (300, 100), screen)
                     if event.key == K_LEFT:
                         sign = button_1.color
                         button_c = Button_Text('Selected', color.gray, 'arialunicode', 12)
@@ -648,7 +721,7 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((205, 192, 176))
+        screen.fill((250, 240, 230) )
 
         t = pygame.font.SysFont('arialunicode', 20)
 
@@ -672,7 +745,9 @@ class InterFace:
         button_1 = Button_Surface(data_display[0], 50, 50)
         button_2 = Button_Surface(data_display[1], 50, 50)
         button_1.display(screen, 150, 100)
+        self.shape(data_display[0], (150, 100), screen)
         button_2.display(screen, 300, 100)
+        self.shape(data_display[1], (300, 100), screen)
 
         random_3.append(data_3)
         sign = None
@@ -687,7 +762,9 @@ class InterFace:
                     button_1 = Button_Surface(data_display[0], 50, 50)
                     button_2 = Button_Surface(data_display[1], 50, 50)
                     button_1.display(screen, 150, 100)
+                    self.shape(data_display[0], (150, 100), screen)
                     button_2.display(screen, 300, 100)
+                    self.shape(data_display[1], (300, 100), screen)
                     if event.key == K_LEFT:
                         sign = button_1.color
                         button_c = Button_Text('Selected', color.gray, 'arialunicode', 12)
@@ -698,13 +775,13 @@ class InterFace:
                         button_c.display(screen, 300, 100)
                     elif event.key == K_SPACE and sign is not None:
                         if sign == data_3:
+                            print(1)
                             self.win()
                         else:
-                            self.errorWin("82%")
+                            self.errorWin("83%")
 
 
             pygame.display.update()
-
 
 
     def win(self):
@@ -743,21 +820,21 @@ class InterFace:
         pygame.display.set_caption('Color Memory Game')
 
         screen = pygame.display.set_mode((500, 500))
-        screen.fill((83, 134, 139))
+        screen.fill((211, 211, 211))
 
         t = pygame.font.SysFont('arialunicode', 20)
 
-        text = t.render("Wrong choice!", True, color.red, color.cyan)
+        text = t.render("Wrong choice!", True, (123, 104, 238))
         text_rect = text.get_rect()
 
         text_rect.center = (250, 20)
 
         screen.blit(text, text_rect)
 
-        accuracy = Text("Your Accuracy: "+acc, (244, 96, 108), 'arial', 21)
+        accuracy = Text("Your Accuracy: "+acc, (123, 104, 238), 'arial', 21)
         accuracy.display(screen, 250, 100)
 
-        button_new = Button_Text('New Game', (244, 96, 108), 'arialunicode', 23)
+        button_new = Button_Text('New Game', (72, 61, 139), 'arialunicode', 23)
         button_new.display(screen, 250, 250)
 
         while True:
