@@ -1,7 +1,10 @@
 import serial
 import matplotlib.pyplot as plt
 import numpy as np
+import wave
+import time
 from filters import butter_filter
+from stream_handlers import event_handler, game_handler
 
 # Constants
 BAUDRATE = 230400
@@ -60,6 +63,8 @@ class Streamer:
     def __init__(self, port, max_time=10):
         self.ser = serialize(port)
         self.max_time = max_time
+        self.events = []
+        self.all_data = []
 
     def close(self):
         self.ser.close()
@@ -71,34 +76,103 @@ class Streamer:
     def set_max_time(self, max_time):
         self.max_time = max_time
 
-    def get_data(self):
-        return process_data(read_arduino(self.ser))
+    def setup_stream(self):
 
-    def stream(self, filter=butter_filter):
-        
+        # Data collection
         N_loops = int(BUFFER_TO_SECOND / INPUT_BUFFER_SIZE * self.max_time)
         raw_data = []
         data = []
+        self.all_data = []
+
+        # Figure
         fig, ax = prepare_canvas()
-        prev_length = 0
+
+        return N_loops, raw_data, data, fig, ax
+
+    def get_data(self):
+        return process_data(read_arduino(self.ser))
+    
+    def update_data(self, raw_data, prev_len, filter=butter_filter):
+
+        # Get data
+        raw_data = np.concatenate([raw_data, self.get_data()])
+
+        if len(raw_data) >= WINDOW_SIZE * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND:
+            
+            # Filter data
+            filtered_data = filter(raw_data)
+            self.all_data = np.append(self.all_data, filtered_data[prev_len:])
+            return filtered_data
+        
+        return []
+
+    def stream(self, filter=butter_filter):
+        
+        N_loops, raw_data, data, fig, ax = self.setup_stream()
+        last_blink_time = 0
 
         for i in range(N_loops):
             
-            # Get data
-            raw_data = np.concatenate([raw_data, self.get_data()])
+            # Get the filtered data
+            data = self.update_data(raw_data, len(data))
 
-            if i < WINDOW_SIZE * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND:
-                continue
+            # Get any events
+            events = event_handler(raw_data, data)
+            for event in events:
+                self.events.append(event)
 
-            # Filter data
-            filtered = filter(raw_data[int(WINDOW_SIZE * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND):])
-            data = np.append(data, filtered[prev_length:])
-            prev_length = len(filtered)
-            plot_on_canvas(fig, ax, self.max_time, data, i)
+            # Game input
+            game_handler(events, last_blink_time)
+
+            # Plot
+            plot_on_canvas(fig, ax, self.max_time, self.all_data, i)
+
         
         # plt.plot(np.fft.fftfreq(len(raw_data), 1/10000)[:len(raw_data)//2], np.abs(np.fft.fft(raw_data))[:len(raw_data)//2])
         # plot_on_canvas(fig, ax, self.max_time, raw_data, i)
 
+        # uncomment to autosave data
+        # with wave.open('data/' + time.strftime("%Y%m%d-%H%M%S"), 'wb') as f:
+        #    f.writeframesraw(all_data)
 
-    def save_data(self, file_path): 
-        pass
+
+    def save_events(self): 
+
+        for event_data in self.events:
+            with wave.open('data/' + time.strftime("%Y%m%d-%H%M%S"), 'wb') as f:
+                 f.writeframesraw(event_data)
+
+    def save_data(self): 
+        with wave.open('data/' + time.strftime("%Y%m%d-%H%M%S"), 'wb') as f:
+            f.writeframesraw(self.all_data)
+
+    def clear_events(self):
+        self.events.clear()
+
+
+######### REPLACE FOR LOOP WITH THIS ONE TO USE THE OLD WORKING CODE
+
+# for i in range(N_loops):
+    
+#     # Get the data
+#     raw_data = np.concatenate([raw_data, self.get_data()])
+
+#     if len(raw_data) < WINDOW_SIZE * INPUT_BUFFER_SIZE / BUFFER_TO_SECOND:
+#        continue
+    
+#     # Filter data
+#     filtered_data = filter(raw_data)
+#     all_data = np.append(all_data, filtered_data[prev_len:])
+#     prev_len = len(filtered_data)  
+
+#     # Get any events
+#     if max(data) > EVENT_THRESHOLD and min(data) < -1 * EVENT_THRESHOLD:
+#        predicted_sd = predict_movement(data)
+#        print(predicted_sd)
+#        raw_data.clear()
+
+#        for event in predicted_sd:
+#           self.events.append(event)
+
+#     # Plot
+#     plot_on_canvas(fig, ax, self.max_time, self.all_data, i)
